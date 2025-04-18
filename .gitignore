@@ -45,3 +45,9 @@ test_*.xml
 # Windows-specific files
 Thumbs.db
 Desktop.ini
+
+bin
+lib
+lib64
+pyvenv.cfg
+share
