@@ -3,25 +3,10 @@ import cv2
 import mediapipe as mp
 import time
 from commands_adapter import CommandsAdapter
+import speech_recognition as sr
+import threading
 
 commandsAdapter = CommandsAdapter()
-
-
-def is_hand_closed(hand_landmarks):
-    # Landmarks for finger tips and pip joints
-    tips_ids = [8, 12, 16, 20]  # Index, Middle, Ring, Pinky tips
-    pip_ids = [6, 10, 14, 18]   # Corresponding PIP joints
-
-    closed_fingers = 0
-
-    for tip_id, pip_id in zip(tips_ids, pip_ids):
-        tip = hand_landmarks.landmark[tip_id]
-        pip = hand_landmarks.landmark[pip_id]
-
-        if tip.y > pip.y:  # Remember: lower y means higher on screen
-            closed_fingers += 1
-
-    return closed_fingers >= 4  # You can tweak this threshold
 
 
 mp_hands = mp.solutions.hands
@@ -43,6 +28,7 @@ cooldown = {
     commandsAdapter.up: 1.0,
     commandsAdapter.down: 1.0,
     commandsAdapter.enter: 2.0,
+    commandsAdapter.back: 2.0,
 }
 last_trigger_times = {
     commandsAdapter.left: 0,
@@ -50,6 +36,8 @@ last_trigger_times = {
     commandsAdapter.up: 0,
     commandsAdapter.down: 0,
     commandsAdapter.enter: 0,
+    commandsAdapter.back: 0,
+    
 
 }
 
@@ -59,6 +47,36 @@ def trigger_command(func):
         last_trigger_times[func] = now
         threading.Thread(target=func).start()
       
+
+
+def recognize_speech():
+    recognizer = sr.Recognizer()
+    mic = sr.Microphone()
+    while True:
+        with mic as source:
+            try:
+                recognizer.adjust_for_ambient_noise(source)
+                audio = recognizer.listen(source)
+                command = recognizer.recognize_google(audio,language="pt-BR")
+                if command == "selecionar":
+                    trigger_command(commandsAdapter.enter)
+                elif command == "voltar":
+                    trigger_command(commandsAdapter.back)    
+            except sr.UnknownValueError:
+                print("Could not understand audio.")
+            except sr.RequestError as e:
+                print(f"API unavailable or error: {e}")
+            except sr.WaitTimeoutError:
+                print("Listening timed out while waiting for phrase.")
+            except KeyboardInterrupt:
+                print("Stopping recognition thread.")
+                
+
+# Create and start thread
+thread = threading.Thread(target=recognize_speech)
+thread.start()
+
+
 while True:
     success, img = cap.read()
     if not success:
@@ -76,12 +94,8 @@ while True:
             cx = int(wrist.x * w)
             cy = int(wrist.y * h)
             
-            hands_closed = is_hand_closed(hand_landmarks) 
-            if prev_hands_close is not None and prev_hands_close != hands_closed :
-               if hands_closed:
-                 trigger_command(commandsAdapter.enter)
-
-            elif prev_x is not None and abs(prev_x - cx) > threshold_x:
+            
+            if prev_x is not None and abs(prev_x - cx) > threshold_x:
                 if cx < prev_x:
                     trigger_command(commandsAdapter.right)
                 elif cx > prev_x:
@@ -91,11 +105,10 @@ while True:
                 if cy < prev_y:
                     trigger_command(commandsAdapter.up)
                 elif cy > prev_y:
-                    trigger_command(commandsAdapter.down)        
-
+                    trigger_command(commandsAdapter.down) 
+               
             prev_x = cx
             prev_y = cy
-            prev_hands_close = hands_closed
 
 
     cv2.imshow("Hand Tracking", img)
